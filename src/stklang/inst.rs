@@ -10,6 +10,7 @@ pub enum Inst {
     Push,
     Pop,
     NewInt { value: i32 },
+    WriteInt { value: i32 },
     WriteAdd,
     NewProd,
     WriteFst,

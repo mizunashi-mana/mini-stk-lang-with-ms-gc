@@ -27,21 +27,107 @@ impl stklang::runner::Runner for RustAllocRunner {
     }
 
     fn pop(&mut self) -> Result<()> {
-        panic!("Not implemented")
+        match self.stack.pop() {
+            None => {
+                return Ok(())
+            }
+            Some(pop_value) => {
+                // TODO: free current register
+                self.register = pop_value;
+                Ok(())
+            }
+        }
     }
 
     fn new_int(&mut self, value: i32) -> Result<()> {
         let new_value = self.heap.alloc_int(value)?;
+        // TODO: free current register
         self.register = new_value;
         Ok(())
     }
 
+    fn write_int(&mut self, value: i32) -> Result<()> {
+        let int_item_opt = unsafe { self.register.as_int_mut() }?;
+        let mut int_item = match int_item_opt {
+            None => {
+                return Ok(())
+            }
+            Some(x) => {
+                x
+            }
+        };
+
+        int_item.value = value;
+
+        Ok(())
+    }
+
     fn write_add(&mut self) -> Result<()> {
-        panic!("Not implemented")
+        let int_item_opt = unsafe { self.register.as_int_mut() }?;
+        let mut int_item = match int_item_opt {
+            None => {
+                return Ok(())
+            }
+            Some(x) => {
+                x
+            }
+        };
+
+        let pop_item_ptr = match self.stack.pop() {
+            None => {
+                return Ok(())
+            }
+            Some(x) => {
+                x
+            }
+        };
+        let pop_item_int_opt = unsafe { pop_item_ptr.as_int_mut() }?;
+        match pop_item_int_opt {
+            None => {
+                // do nothing
+            }
+            Some(pop_item) => {
+                int_item.value = int_item.value + pop_item.value;
+            }
+        };
+
+        // TODO: free pop_item_ptr
+
+        Ok(())
     }
 
     fn new_prod(&mut self) -> Result<()> {
-        panic!("Not implemented")
+        let pop_value1 = match self.stack.pop() {
+            None => {
+                return Ok(())
+            }
+            Some(x) => {
+                x
+            }
+        };
+        let pop_value2 = match self.stack.pop() {
+            None => {
+                pop_value1
+            }
+            Some(x) => {
+                x
+            }
+        };
+
+        let new_value = match self.heap.alloc_prod(pop_value1, pop_value2) {
+            Err(err) => {
+                // TODO: free pop_value1 and pop_value2
+                Err(err)?
+            }
+            Ok(x) => {
+                x
+            }
+        };
+
+        // TODO: free current register
+        self.register = new_value;
+
+        Ok(())
     }
 
     fn write_fst(&mut self) -> Result<()> {
@@ -64,6 +150,7 @@ impl stklang::runner::Runner for RustAllocRunner {
             }
         };
 
+        // TODO: free current first
         prod_item.first = pop_value;
         Ok(())
     }
@@ -88,6 +175,7 @@ impl stklang::runner::Runner for RustAllocRunner {
             }
         };
 
+        // TODO: free current first
         prod_item.second = pop_value;
         Ok(())
     }

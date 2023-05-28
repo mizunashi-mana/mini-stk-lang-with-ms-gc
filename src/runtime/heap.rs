@@ -33,6 +33,22 @@ impl Ptr {
 
         Ok(Some(&mut *item_body_ptr))
     }
+
+    pub unsafe fn as_int_mut<'a>(self) -> Result<Option<&'a mut ItemBodyInt>> {
+        let item_ptr = self.as_nonnull()?;
+        let item = item_ptr.as_ref();
+
+        let item_body_ptr = match item.typ {
+            ItemType::Prod => {
+                return Ok(None)
+            }
+            ItemType::Int => {
+                item.body.as_ptr() as *mut ItemBodyInt
+            }
+        };
+
+        Ok(Some(&mut *item_body_ptr))
+    }
 }
 
 pub struct Heap {
@@ -115,7 +131,7 @@ impl Heap {
                     second: second,
                 })));
                 let new_item = NonNull::from(Box::leak(Box::new(Item {
-                    typ: ItemType::Int,
+                    typ: ItemType::Prod,
                     next: std::ptr::null_mut(),
                     body: new_item_body,
                 })));

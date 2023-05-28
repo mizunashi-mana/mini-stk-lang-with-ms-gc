@@ -5,6 +5,7 @@ pub trait Runner {
     fn push(&mut self) -> Result<()>;
     fn pop(&mut self) -> Result<()>;
     fn new_int(&mut self, value: i32) -> Result<()>;
+    fn write_int(&mut self, value: i32) -> Result<()>;
     fn write_add(&mut self) -> Result<()>;
     fn new_prod(&mut self) -> Result<()>;
     fn write_fst(&mut self) -> Result<()>;
@@ -28,6 +29,9 @@ pub fn run_inst(runner: &mut impl Runner, inst: &inst::Inst) -> Result<()> {
         }
         inst::Inst::NewInt { value } => {
             runner.new_int(*value)?;
+        }
+        inst::Inst::WriteInt { value } => {
+            runner.write_int(*value)?;
         }
         inst::Inst::WriteAdd => {
             runner.write_add()?;
