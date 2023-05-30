@@ -183,4 +183,8 @@ impl stklang::runner::Runner for RustAllocRunner {
     fn print(&mut self) -> Result<()> {
         panic!("Not implemented")
     }
+
+    fn gc(&mut self) -> Result<()> {
+        panic!("Not implemented")
+    }
 }

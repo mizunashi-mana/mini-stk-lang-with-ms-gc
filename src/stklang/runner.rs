@@ -11,6 +11,7 @@ pub trait Runner {
     fn write_fst(&mut self) -> Result<()>;
     fn write_snd(&mut self) -> Result<()>;
     fn print(&mut self) -> Result<()>;
+    fn gc(&mut self) -> Result<()>;
 }
 
 pub fn run(runner: &mut impl Runner, prog: &inst::Program) -> Result<()> {
@@ -47,6 +48,9 @@ pub fn run_inst(runner: &mut impl Runner, inst: &inst::Inst) -> Result<()> {
         }
         inst::Inst::Print => {
             runner.print()?;
+        }
+        inst::Inst::Gc => {
+            runner.gc()?;
         }
     };
     Result::Ok(())

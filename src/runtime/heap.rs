@@ -2,52 +2,62 @@ use std::ptr::NonNull;
 use std::io::{Result, Error, ErrorKind};
 use std::sync::Mutex;
 
-// `()` is the universal dummy type. Actual types are either ItemBody*.
+// `()` is the universal dummy type. Actual types are `Item<_>`.
 #[derive(Debug, Copy, Clone)]
-pub struct Ptr(*mut Item<()>);
+pub struct Ptr(*mut ());
+
+const TAGBIT_INT: usize = 0b01;
+const TAGBIT_PROD: usize = 0b10;
 
 impl Ptr {
-    fn as_nonnull(self) -> Result<NonNull<Item<()>>> {
-        match NonNull::new(self.0) {
-            None => {
-                Err(Error::new(ErrorKind::AddrNotAvailable, "Null pointer cannot free."))?
-            }
-            Some(x) => {
-                Ok(x)
-            }
-        }
+    fn get_tagbit(self) -> usize {
+        (self.0 as usize) & 0b11usize
+    }
+
+    fn new_int(raw: NonNull<Item<ItemBodyInt>>) -> Ptr {
+        Ptr(unsafe { raw.as_ptr().add(TAGBIT_INT) } as *mut ())
+    }
+
+    fn new_prod(raw: NonNull<Item<ItemBodyProd>>) -> Ptr {
+        Ptr(unsafe { raw.as_ptr().add(TAGBIT_PROD) } as *mut ())
     }
 
     pub unsafe fn as_prod_mut<'a>(self) -> Result<Option<&'a mut ItemBodyProd>> {
-        let item_ptr = self.as_nonnull()?;
-        let item = item_ptr.as_ref();
+        let tagbit = self.get_tagbit();
 
-        let item_body_ptr = match item.typ {
-            ItemType::Int => {
-                return Ok(None)
+        if tagbit != TAGBIT_PROD {
+            return Ok(None)
+        };
+
+        let item = match NonNull::new(self.0.sub(tagbit) as *mut Item<ItemBodyProd>) {
+            None => {
+                Err(Error::new(ErrorKind::AddrNotAvailable, "Null pointer cannot free."))?
             }
-            ItemType::Prod => {
-                item.body.as_ptr() as *mut ItemBodyProd
+            Some(mut x) => {
+                x.as_mut()
             }
         };
 
-        Ok(Some(&mut *item_body_ptr))
+        Ok(Some(&mut item.body))
     }
 
     pub unsafe fn as_int_mut<'a>(self) -> Result<Option<&'a mut ItemBodyInt>> {
-        let item_ptr = self.as_nonnull()?;
-        let item = item_ptr.as_ref();
+        let tagbit = self.get_tagbit();
 
-        let item_body_ptr = match item.typ {
-            ItemType::Prod => {
-                return Ok(None)
+        if tagbit != TAGBIT_INT {
+            return Ok(None)
+        };
+
+        let item = match NonNull::new(self.0.sub(tagbit) as *mut Item<ItemBodyInt>) {
+            None => {
+                Err(Error::new(ErrorKind::AddrNotAvailable, "Null pointer cannot free."))?
             }
-            ItemType::Int => {
-                item.body.as_ptr() as *mut ItemBodyInt
+            Some(mut x) => {
+                x.as_mut()
             }
         };
 
-        Ok(Some(&mut *item_body_ptr))
+        Ok(Some(&mut item.body))
     }
 }
 
@@ -81,25 +91,23 @@ impl Heap {
         let use_item_ptr = match use_item_ptr_opt {
             Some(mut use_item_ptr) => {
                 unsafe {
-                    let mut use_item_body = use_item_ptr.as_mut().body.as_mut();
-                    use_item_body.value = value;
+                    let mut use_item = use_item_ptr.as_mut();
+                    use_item.body.value = value;
                 };
                 use_item_ptr
             }
             None => {
-                let new_item_body = NonNull::from(Box::leak(Box::new(ItemBodyInt {
-                    value: value,
-                })));
                 let new_item = NonNull::from(Box::leak(Box::new(Item {
-                    typ: ItemType::Int,
                     next: std::ptr::null_mut(),
-                    body: new_item_body,
+                    body: ItemBodyInt {
+                        value: value,
+                    },
                 })));
                 new_item
             }
         };
 
-        Ok(Ptr(use_item_ptr.as_ptr() as *mut Item<()>))
+        Ok(Ptr::new_int(use_item_ptr))
     }
 
     pub fn alloc_prod(&mut self, first: Ptr, second: Ptr) -> Result<Ptr> {
@@ -119,59 +127,64 @@ impl Heap {
         let use_item_ptr = match use_item_ptr_opt {
             Some(mut use_item_ptr) => {
                 unsafe {
-                    let mut use_item_body = use_item_ptr.as_mut().body.as_mut();
-                    use_item_body.first = first;
-                    use_item_body.second = second;
+                    let mut use_item = use_item_ptr.as_mut();
+                    use_item.body.first = first;
+                    use_item.body.second = second;
                 };
                 use_item_ptr
             }
             None => {
-                let new_item_body = NonNull::from(Box::leak(Box::new(ItemBodyProd {
-                    first: first,
-                    second: second,
-                })));
                 let new_item = NonNull::from(Box::leak(Box::new(Item {
-                    typ: ItemType::Prod,
                     next: std::ptr::null_mut(),
-                    body: new_item_body,
+                    body: ItemBodyProd {
+                        first: first,
+                        second: second,
+                    },
                 })));
                 new_item
             }
         };
 
-        Ok(Ptr(use_item_ptr.as_ptr() as *mut Item<()>))
+        Ok(Ptr::new_prod(use_item_ptr))
     }
 
-    pub fn free(&mut self, pointer: Ptr) -> Result<()> {
-        let mut pointer_nonnull = pointer.as_nonnull()?;
-        unsafe {
-            let mut item = pointer_nonnull.as_mut();
-            match item.typ {
-                ItemType::Int => {
-                    let mut free_subheap = self.free_subheap_int.lock().unwrap();
-                    item.next = *free_subheap as *mut Item<()>;
-                    *free_subheap = pointer_nonnull.as_ptr() as *mut Item<ItemBodyInt>;
+    pub unsafe fn free(&mut self, pointer: Ptr) -> Result<()> {
+        let tagbit = pointer.get_tagbit();
+
+        if tagbit == TAGBIT_INT {
+            let mut item_ptr = match NonNull::new(pointer.0.sub(tagbit) as *mut Item<ItemBodyInt>) {
+                None => {
+                    Err(Error::new(ErrorKind::AddrNotAvailable, "Null pointer cannot free."))?
                 }
-                ItemType::Prod => {
-                    let mut free_subheap = self.free_subheap_prod.lock().unwrap();
-                    item.next = *free_subheap as *mut Item<()>;
-                    *free_subheap = pointer_nonnull.as_ptr() as *mut Item<ItemBodyProd>;
+                Some(x) => {
+                    x
                 }
-            }
+            };
+            let mut free_subheap = self.free_subheap_int.lock().unwrap();
+            item_ptr.as_mut().next = *free_subheap;
+            *free_subheap = item_ptr.as_ptr();
+        } else if tagbit == TAGBIT_PROD {
+            let mut item_ptr = match NonNull::new(pointer.0.sub(tagbit) as *mut Item<ItemBodyProd>) {
+                None => {
+                    Err(Error::new(ErrorKind::AddrNotAvailable, "Null pointer cannot free."))?
+                }
+                Some(x) => {
+                    x
+                }
+            };
+            let mut free_subheap = self.free_subheap_prod.lock().unwrap();
+            item_ptr.as_mut().next = *free_subheap;
+            *free_subheap = item_ptr.as_ptr();
+        } else {
+            Err(Error::new(ErrorKind::AddrNotAvailable, "The tag bit is illegal."))?
         };
         Ok(())
     }
 }
 
-pub struct Item<T> {
-    typ: ItemType,
-    next: *mut Item<T>,
-    body: NonNull<T>,
-}
-
-pub enum ItemType {
-    Int,
-    Prod,
+pub struct Item<Body> {
+    next: *mut Item<Body>,
+    body: Body,
 }
 
 pub struct ItemBodyInt {

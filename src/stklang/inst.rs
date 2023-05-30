@@ -16,4 +16,5 @@ pub enum Inst {
     WriteFst,
     WriteSnd,
     Print,
+    Gc,
 }
